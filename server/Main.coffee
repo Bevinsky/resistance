@@ -101,7 +101,7 @@ app.post '/server/register', (req, res) ->
         challenge: req.body.challenge
         response: req.body.response
     captchaReq.end()  
-    
+
 app.use express.static(__dirname + "/client")
 
 g.db = new Database()
@@ -110,5 +110,5 @@ g.db.initialize (err) ->
     g.lobby = new Lobby()
     g.stats = new Statistics(g.db)
     setInterval gcPlayers, 60000
-    app.listen(80)
+    app.listen(12080)
     console.log 'Server started.'
