@@ -2,6 +2,7 @@ express = require('express')
 createSessionKey = require('crypto').randomBytes
 toQueryString = require('querystring').stringify
 http = require('http')
+fs = require('fs')
 
 getPlayer = (req, res) ->
     sessionKey = req.cookies.sessionKey
@@ -78,37 +79,45 @@ app.post '/server/register', (req, res) ->
     return res.send(400, 'Invalid username') if req.body.username.match(/\ \ /)
     return res.send(400, 'Invalid password') if isEmpty(req.body.password1) is '' or req.body.password1 isnt req.body.password2
     return res.send(400, 'Invalid email') if isEmpty(req.body.email) or req.body.email.length < 3 or req.body.email.indexOf('@') is -1
-    return res.send(400, 'Invalid captcha') if isEmpty req.body.response
-    
-    captchaReq = http.request
-        method: 'POST'
-        hostname: 'www.google.com'
-        path: '/recaptcha/api/verify'
-        headers:
-            'Content-Type': 'application/x-www-form-urlencoded'
-        (captchaRes) ->
-            data = ''
-            captchaRes.on 'data', (chunk) -> data += chunk
-            captchaRes.on 'end', ->
-                return res.send(400, 'Invalid captcha') if data[...4] isnt 'true'
-                g.db.addUser req.body.username, req.body.password1, req.body.email, (err) -> 
-                    return res.send(400, 'Invalid username or username already taken') if err?
-                    res.send(200)
-                
-    captchaReq.write toQueryString
-        privatekey: process.env.RESISTANCE_RECAPTCHA_PRIVATE_KEY
-        remoteip: req.ip
-        challenge: req.body.challenge
-        response: req.body.response
-    captchaReq.end()  
 
+    if g.options.recaptcha_private_key?
+      return res.send(400, 'Invalid captcha') if isEmpty req.body.response
+      
+      captchaReq = http.request
+          method: 'POST'
+          hostname: 'www.google.com'
+          path: '/recaptcha/api/verify'
+          headers:
+              'Content-Type': 'application/x-www-form-urlencoded'
+          (captchaRes) ->
+              data = ''
+              captchaRes.on 'data', (chunk) -> data += chunk
+              captchaRes.on 'end', ->
+                  return res.send(400, 'Invalid captcha') if data[...4] isnt 'true'
+                  g.db.addUser req.body.username, req.body.password1, req.body.email, (err) -> 
+                      return res.send(400, 'Invalid username or username already taken') if err?
+                      res.send(200)
+                  
+      captchaReq.write toQueryString
+          privatekey: g.options.recaptcha_private_key
+          remoteip: req.ip
+          challenge: req.body.challenge
+          response: req.body.response
+      captchaReq.end()  
+    else
+      g.db.addUser req.body.username, req.body.password1, req.body.email, (err) -> 
+          return res.send(400, 'Invalid username or username already taken') if err?
+          res.send(200)
+    
 app.use express.static(__dirname + "/client")
 
+throw "Syntax: node Server.js options.json" if process.argv.length isnt 3
+g.options = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
 g.db = new Database()
 g.db.initialize (err) -> 
     return console.log err if err
     g.lobby = new Lobby()
     g.stats = new Statistics(g.db)
     setInterval gcPlayers, 60000
-    app.listen(12080)
+    app.listen(g.options.port)
     console.log 'Server started.'

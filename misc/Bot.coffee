@@ -16,16 +16,16 @@ class Bot
         @gameover = false
 
     sendAjax: (options = {}) ->
-        #console.log options.body
+        console.log options.body
         req = http.request
-            hostname: '127.0.0.1',
-            port: 8080,
+            hostname: '127.0.0.1'
+            port: 8080
             method: options.verb or 'POST',
             path: options.url or '/server/play'
             agent: false
             headers:
                 'Content-Type': 'application/json' 
-                'Cookie': @sessionKey
+                'Cookie': @sessionKey || ""
             (res) =>
                 readFully res, (data) =>
                     return if not options.cb?
@@ -49,7 +49,7 @@ class Bot
         @sendAjax verb:'GET', cb: @pollLoop
         
     start: ->
-        @sendAjax body: { username:@name, password:"password" }, url: '/server/login', cb: @afterLogin
+        @sendAjax body: { username:@name, password:process.env.RESISTANCE_BOT_PASSWORD || "" }, url: '/server/login', cb: @afterLogin
 
     afterLogin: (res, data) ->
         @sessionKey  = /(sessionKey=\w*)/.exec res.headers['set-cookie']
@@ -61,7 +61,7 @@ class Bot
         
     considerJoinGame: ->
         if Math.random() < 0.03 and true
-            return @sendAjax body: { cmd: 'join', gameType: rand [1,2] }, cb: @gameLoop
+            return @sendAjax body: { cmd: 'join', gameType: rand [1,2,5] }, cb: @gameLoop
         if @games.length is 0 or Math.random() < 0.5
             return setTimeout (=> @gameLoop()), 1000
         game = rand @games
