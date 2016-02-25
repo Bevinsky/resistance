@@ -40,19 +40,19 @@ class Statistics
         
         for gameplayer in tables.gamePlayers
             game = gameIdx[gameplayer.gameId]
-            which = if gameplayer.isSpy then game.spies else game.resistance
+            which = if gameplayer.isSpy == 1 then game.spies else game.resistance
             which.push playerIdx[gameplayer.playerId]
         
         for game in tables.games
             for player in game.spies
                 player.lastGame = game.startTime
                 ++player.spyGames
-                ++player.spyWins if game.spiesWin
+                ++player.spyWins if game.spiesWin == 1
                 ++player.lastMonthGames if game.startTime.getTime() > oneMonthAgo
             for player in game.resistance
                 player.lastGame = game.startTime
                 ++player.resistanceGames
-                ++player.resistanceWins if not game.spiesWin
+                ++player.resistanceWins if game.spiesWin == 0
                 ++player.lastMonthGames if game.startTime.getTime() > oneMonthAgo
                 
     getActivePlayers: (tables) ->
@@ -91,15 +91,15 @@ class Statistics
             3: "Basic"
             4: "Avalon+"
             
-        for i in [0 ... 25]
+        for i in [0 ... Math.min(25, tables.games.length)]
             game = tables.games[tables.games.length - i - 1]
             html += "<tr>" +
                 "<td>#{game.startTime.toUTCString()}</td> " +
                 "<td>#{gameTypeName[game.gameType]}</td> " +
                 "<td>#{game.spies.length + game.resistance.length}</td> " +
                 "<td>#{((game.endTime.getTime() - game.startTime.getTime()) / 60000).toFixed(0)}</td> " +
-                "<td class='#{if game.spiesWin then '' else 'info'}'>#{game.resistance.map((i) -> i.name).join(', ')}</td> " +
-                "<td class='#{if game.spiesWin then 'info' else ''}'>#{game.spies.map((i) -> i.name).join(', ')}</td></tr>"
+                "<td class='#{if game.spiesWin == 1 then '' else 'info'}'>#{game.resistance.map((i) -> i.name).join(', ')}</td> " +
+                "<td class='#{if game.spiesWin == 1 then 'info' else ''}'>#{game.spies.map((i) -> i.name).join(', ')}</td></tr>"
             
         html += "</table>"
         return html
@@ -111,7 +111,7 @@ class Statistics
             html += "<tr><td>#{n}</td>"
             for type in [3, 1, 2, 4]
                 games = tables.games.filter((i) -> i.spies.length + i.resistance.length is n and i.gameType is type)
-                html += "<td>#{@frac(games.filter((i) -> i.spiesWin).length, games.length)}</td> "
+                html += "<td>#{@frac(games.filter((i) -> i.spiesWin == 1).length, games.length)}</td> "
             html += "</tr>"
             
         html += "</table>"
@@ -126,7 +126,7 @@ class Statistics
         minDay = Math.min.apply null, startDays
         maxDay = Math.max.apply null, startDays
         
-        rows =
+        rows = if tables.games.length == 0 then [] else
             for startDay in [minDay .. maxDay - 7]
                 startTime = startDay * millisInDay
                 games = 0

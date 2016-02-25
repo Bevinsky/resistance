@@ -1,25 +1,35 @@
-sql = require 'msnodesql'
+sql = require('mysql')
+queues = require('mysql-queues')
 
 class AutoRetryConnection
-    constructor: ->
+    #constructor: ->
     query: (queryStmt, params, cb, retry = 3) ->
         if not @conn?
             @initialize (err, conn) =>
                 if retry > 0
                     @query(queryStmt, params, cb, retry - 1)
-                else 
+                else
                     cb(err, conn)
         else
-            @conn.query(queryStmt, params, (err, conn) =>
-                if err? and err.sqlstate is '08S01'
+           @conn.query(queryStmt, params, (err, conn) =>
+                if err?
+                    console.log err
+                    @conn.end if not @conn?
                     @conn = null
                     @query(queryStmt, params, cb, retry)
                 else
                     cb(err,conn))
     initialize: (cb) ->
-        sql.open process.env.RESISTANCE_DB_CONNECTION_STRING, (err, conn) => 
-            @conn = if err then null else conn
-            cb(err, conn)    
+        login =
+            host: process.env.RESISTANCE_DB_HOST
+            user: process.env.RESISTANCE_DB_USER
+            password: process.env.RESISTANCE_DB_PASS
+            database: process.env.RESISTANCE_DB_DB
+        @conn = sql.createConnection(login)
+        queues(@conn, true)
+        @conn.connect (err) =>
+            @conn = if err then null else @conn
+            cb(err, @conn)
             
 class Database
     constructor: ->
@@ -31,20 +41,20 @@ class Database
         
     addUser: (name, password, email, cb) ->
         @connection.query( 
-            "INSERT Users(name, passwd, isValid, email) VALUES (?, HASHBYTES('sha2_256', ?), 1, ?)"
+            "INSERT INTO Users (name, passwd, isValid, email) VALUES (?, UNHEX(SHA1(?)), 1, ?)"
             [name, password, email]
             cb)
             
     login: (playerId, ip, cb) ->
         hexByte = (i) -> ('0' + parseInt(i).toString(16))[-2..]
         @connection.query(
-            "INSERT Logins(playerId, ip) VALUES (?, CONVERT(BINARY(4), ?, 2))"
+            "INSERT INTO Logins (playerId, ip) VALUES (?, UNHEX(?))"
             [playerId, ip.split('.').map(hexByte).join('')]
             cb)
             
     getUserId: (name, password, cb) ->
         @connection.query(
-            "SELECT id FROM Users WHERE name=? AND passwd=HASHBYTES('sha2_256', ?) AND isValid=1"
+            "SELECT id FROM Users WHERE name=? AND passwd=UNHEX(SHA1(?)) AND isValid=1"
             [name, password]
             (err, result) ->
                 console.log err if err
@@ -54,15 +64,29 @@ class Database
                 
     createGame: (startData, gameType, players, spies, cb) ->
         @connection.query(
-            "BEGIN TRANSACTION CreateGame\n" +
-            "SET XACT_ABORT ON\n" +
-            "DECLARE @gameId INT\n" +
-            "INSERT Games(startData, gameType) VALUES (?, ?);\n" +
-            "SET @gameId=@@IDENTITY\n" +
+            "INSERT INTO Games (startData, gameType) VALUES (?, ?);"
+            [startData, gameType]
+            (err, result) =>
+                console.log err if err
+                return cb(err) if err
+                gameId = result.insertId
+                async.map((players.map (player, idx) =>
+                    "INSERT INTO GamePlayers (gameId, seat, playerId, isSpy) VALUES (#{gameId}, #{idx}, #{player.id}, #{if player in spies then 1 else 0});")
+                    @connection.query.bind(@connection)
+                    (err, res) =>
+                        console.log err if err
+                        return cb(err) if err
+                        cb(null, gameId)))
+        return
+        @connection.query(
+            "START TRANSACTION;\n" +
+            "SET @gameId = 0;\n" +
+            "INSERT INTO Games (startData, gameType) VALUES (?, ?);\n" +
+            "SET @gameId=LAST_INSERT_ID();\n" +
             (players.map (player, idx) -> 
-                "INSERT GamePlayers(gameId, seat, playerId, isSpy) VALUES (@gameId, #{idx}, #{player.id}, #{if player in spies then 1 else 0})\n").join('') +
-            "COMMIT TRANSACTION CreateGame\n" +
-            "SELECT @gameId AS id"    
+                "INSERT INTO GamePlayers (gameId, seat, playerId, isSpy) VALUES (@gameId, #{idx}, #{player.id}, #{if player in spies then 1 else 0});\n").join('') +
+            "COMMIT;\n" +
+            "SELECT @gameId AS id;"
             [startData, gameType]
             (err, result) ->
                 console.log err if err?
@@ -83,7 +107,7 @@ class Database
                 games[gameId].gameLogs.push { playerId: logs.playerId, action: logs.action }
             return Object.keys(games).map((key) -> games[key])
         @connection.query(
-            "SELECT GamePlayers.* FROM Games, GamePlayers WHERE Games.id=GamePlayers.gameId AND Games.endTime IS NULL"
+            "SELECT GamePlayers.gameId, GamePlayers.seat, GamePlayers.isSpy+0 as isSpy FROM Games, GamePlayers WHERE Games.id=GamePlayers.gameId AND Games.endTime IS NULL"
             (err, players) ->
                 return cb(err) if err
                 @connection.query(
@@ -94,21 +118,21 @@ class Database
                         
     updateGame: (gameId, id, playerId, action, cb) ->
         @connection.query(
-            "INSERT GameLog(gameId, id, playerId, action) VALUES (?, ?, ?, ?)"
+            "INSERT INTO GameLog (gameId, id, playerId, action) VALUES (?, ?, ?, ?)"
             [gameId, id, playerId, action]
             cb)
             
     finishGame: (gameId, spiesWin, cb) ->
         @connection.query(
-            "UPDATE Games SET endTime=SYSUTCDATETIME(), spiesWin=? WHERE id=?"
+            "UPDATE Games SET endTime=NOW(), spiesWin=? WHERE id=?"
             [spiesWin, gameId]
             cb)
             
     getTables: (cb) ->
         async.map [
-            "SELECT id, startTime, endTime, spiesWin, gameType FROM Games WHERE endTime IS NOT NULL ORDER BY startTime"
-            "SELECT id, name FROM Users"
-            "SELECT gameId, playerId, isSpy FROM GamePlayers as gp, Games as g WHERE gp.gameId = g.id AND g.endTime IS NOT NULL"],
+            "SELECT id, startTime, endTime, spiesWin+0 as spiesWin, gameType FROM Games WHERE endTime IS NOT NULL ORDER BY startTime;"
+            "SELECT id, name FROM Users;"
+            "SELECT gameId, playerId, isSpy+0 as isSpy FROM GamePlayers as gp, Games as g WHERE gp.gameId = g.id AND g.endTime IS NOT NULL;"],
             (item, cb) => @connection.query item, [], cb
             (err, res) =>
                 return cb(err) if err?
