@@ -931,7 +931,7 @@ class Game extends Room
         responses = []
         @sendAll '-vote'
         @ask 'electing the government ...',
-            @makeQuestions @getIds @everyoneExcept @executedPlayers,
+            @makeQuestions @getIds(@everyoneExcept(@executedPlayers)) ,
                 cmd: 'choose'
                 msg: context.msg
                 choices: ['Approve', 'Reject']
@@ -1066,7 +1066,7 @@ class Game extends Room
                 cmd: 'choosePlayers'
                 msg: "Choose which player to interrogate.", 
                 n: 1
-                players: @getIds @everyoneExcept @executedPlayers.concat([@activePlayers[@leader]])
+                players: @getIds(@everyoneExcept(@executedPlayers.concat([@activePlayers[@leader]])))
                 (response, doneCb) =>
                     @sendAllMsgAndGameLog "#{response.player.name} chooses to interrogate #{response.choice[0].name}!", @everyoneExcept @activePlayers[@leader]
                     role = if response.choice[0].id in @spies then 'FASCIST' else 'LIBERAL'
@@ -1087,7 +1087,7 @@ class Game extends Room
                 cmd: 'choosePlayers'
                 msg: "Choose a player to be the next president.", 
                 n: 1
-                players: @getIds @everyoneExcept @executedPlayers.concat([@activePlayers[@leader]])
+                players: @getIds(@everyoneExcept(@executedPlayers.concat([@activePlayers[@leader]])))
                 (response, doneCb) =>
                     @sendAllMsg "#{response.player} has selected #{@playerNameList(response.choice)} to be the next president."
                     @leader = (for p, i in @activePlayers when p.id is response.choice[0].id
@@ -1110,7 +1110,7 @@ class Game extends Room
                 cmd: 'choosePlayers'
                 msg: "Choose which player to execute.", 
                 n: 1
-                players: @getIds @everyoneExcept @executedPlayers.concat([@activePlayers[@leader]])
+                players: @getIds(@everyoneExcept(@executedPlayers.concat([@activePlayers[@leader]])))
                 (response, doneCb) =>
                     @sendAllMsgAndGameLog "#{response.player.name} chooses to execute #{response.choice[0].name}!"
                     if response.choice[0].id is @hitler
