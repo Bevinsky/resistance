@@ -313,12 +313,11 @@ class Game extends Room
                 if p.id in [@resistanceHunter, @spyHunter, @dummyAgent, @coordinator, @deepAgent, @pretender]
                     roleMsg = "You are the #{p.role}. "
             if @gameType is SECRET_HITLER_GAMETYPE
-              roleMsg =
                 if p.id is @hitler
-                    "You are the Secret Hitler. "
+                    roleMsg = "You are the Secret Hitler. "
 
             if @gameType is SECRET_HITLER_GAMETYPE
-              p.sendMsg "#{roleMsg}You are #{if p in @spies then 'a FASCIST' else 'a LIBERAL!'}! There are #{@spies.length} fascists in this game."
+              p.sendMsg "#{roleMsg}You are #{if p in @spies then 'a FASCIST' else 'a LIBERAL'}! There are #{@spies.length} fascists in this game."
             else
               p.sendMsg "#{roleMsg}You are #{if p in @spies then 'a SPY' else 'RESISTANCE!'}! There are #{@spies.length} spies in this game."
             p.sendMsg whoIsInTheGame if @gameType is AVALON_GAMETYPE or @gameType is HUNTER_GAMETYPE
@@ -1224,8 +1223,8 @@ class Game extends Room
                 else if @gameType is SECRET_HITLER_GAMETYPE
                   iKnowTheyAreASpy = 
                     me.id is them.id or
-                    (@activePlayers.length < 7) or
-                    (me.id is not @hitler)
+                    (@activePlayers.length < 7 and isSpy(me)) or
+                    (me.id is not @hitler and isSpy(me))
                 else
                   iKnowTheyAreASpy =
                     me.id is them.id or
