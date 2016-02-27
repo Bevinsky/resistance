@@ -1132,7 +1132,7 @@ class Game extends Room
         --@drawFascist if not policy
         return policy
     
-    shufflePolicyDeck ->
+    shufflePolicyDeck: ->
         if @drawLiberal + @drawFascist < 3
           @drawLiberal += @discardLiberal
           @drawFascist += @discardFascist
