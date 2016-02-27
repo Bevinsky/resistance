@@ -899,7 +899,8 @@ class Game extends Room
         if @previousLeader >= 0
           @leader = @previousLeader
           @previousLeader = -1
-        @leader = (@leader + 1) % @activePlayers.length
+        while @activePlayers[@leader] not in @unelectablePlayers.concat(@executedPlayers)
+          @leader = (@leader + 1) % @activePlayers.length
         @chancellor = -1
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         @sendAll 'leader', { player: @activePlayers[@leader].id }
@@ -930,7 +931,7 @@ class Game extends Room
     electPhase: (context) ->
         responses = []
         @sendAll '-vote'
-        @ask 'electing the government ...',
+        @ask 'voting for the government ...',
             @makeQuestions @everyoneExcept(@executedPlayers),
                 cmd: 'choose'
                 msg: context.msg
@@ -938,8 +939,8 @@ class Game extends Room
                 (response, doneCb) => responses.push(response); doneCb()
             =>
                 for response in responses
-                    @votelog.approve[@votelog.approve.length - 1].push(response.player.id) if response.choice is 'Approve'
-                    @votelog.reject[@votelog.reject.length - 1].push(response.player.id) if response.choice is 'Reject'
+                    #@votelog.approve[@votelog.approve.length - 1].push(response.player.id) if response.choice is 'Approve'
+                    #@votelog.reject[@votelog.reject.length - 1].push(response.player.id) if response.choice is 'Reject'
                     @sendAll '+vote', { player:response.player.id, vote:response.choice }
                 context.votes = context.votes.concat(responses)
                 # votes are collected.
@@ -975,7 +976,7 @@ class Game extends Room
                       policy = @drawPolicy()
                       ++@liberalPolicies if policy
                       ++@fascistPolicies if not policy
-                      @sendAll 'hitlerScoreboard', @getHitlerScoreboard
+                      @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
                       @sendAllMsg "Parliament is hung! A #{if policy then 'LIBERAL' else 'FASCIST'} policy was enacted."
                       @unelectablePlayers = []
                       if @liberalPolicies == 5
@@ -994,9 +995,9 @@ class Game extends Room
           questionMessage = "You draw ONE LIBERAL and TWO FASCIST policies. Which do you discard?"
         else if context.cards.fascist is 3
           questionMessage = "You draw THREE FASCIST policies. Which do you discard?"
-        @sendAll 'hitlerScoreboard', @getHitlerScoreboard
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         @ask 'selecting which policy to discard...',
-            @makeQuestions @activePlayers[@leader],
+            @makeQuestions [@activePlayers[@leader]],
                 cmd: 'choose'
                 msg: questionMessage
                 choices: ['Liberal', 'Fascist'],
@@ -1020,9 +1021,9 @@ class Game extends Room
           questionMessage = "You are handed TWO LIBERAL policies. Which do you enact?"
         else if context.cards.liberal is 1 and context.cards.fascist is 1
           questionMessage = "You are handed ONE LIBERAL and ONE FASCIST policy. Which do you enact?"
-        else if context.cards.fascist is 3
+        else if context.cards.fascist is 2
           questionMessage = "You are handed TWO FASCIST policies. Which do you enact?"
-        @sendAll 'hitlerScoreboard', @getHitlerScoreboard
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         @ask 'selecting which policy to enact...',
             @makeQuestions [@activePlayers[@chancellor]],
                 cmd: 'choose'
@@ -1046,8 +1047,8 @@ class Game extends Room
                     doneCb()
     
     policyWasEnacted: (context, wasLiberal) ->
-        @sendAll 'hitlerScoreboard', @getHitlerScoreboard
-        @sendAllMsgAndGameLog "#{activePlayers[@chancellor].name} enacted a #{if wasLiberal then 'LIBERAL' else 'FASCIST'} policy!"
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
+        @sendAllMsgAndGameLog "#{@activePlayers[@chancellor].name} enacted a #{if wasLiberal then 'LIBERAL' else 'FASCIST'} policy!"
         if wasLiberal
           return @resistanceWins() if @liberalPolicies == 5
           @nextElectionRound()
@@ -1099,8 +1100,8 @@ class Game extends Room
     peekPhase: ->
         @peek = []
         for i in [0 ... 3]
-          @peek.push @drawPolicy()
-        @sendAllMsgAndGameLog "#{response.player.name} is peeking at the next three policies!", @everyoneExcept @activePlayers[@leader]
+          @peek.push @drawPolicy(false)
+        @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} is peeking at the next three policies!", @everyoneExcept @activePlayers[@leader]
         @activePlayers[@leader].sendMsg "You peek at the next three policies! From top to bottom, they are #{@peek.map((p) -> if p then 'LIBERAL' else 'FASCIST').join ', '}."
         @nextElectionRound()
     
@@ -1122,13 +1123,13 @@ class Game extends Room
                     doneCb()
     
     # true is liberal, false is fascist
-    drawPolicy: ->
+    drawPolicy: (pullFromDeck = true) ->
         if @peek.length > 0
           policy = @peek.shift()
         else
           policy = Math.random() < (@drawLiberal / (@drawLiberal + @drawFascist))
-        --@drawLiberal if policy
-        --@drawFascist if not policy
+        --@drawLiberal if policy and pullFromDeck
+        --@drawFascist if not policy and pullFromDeck
         return policy
     
     shufflePolicyDeck: ->
@@ -1240,6 +1241,8 @@ class Game extends Room
                           (@resHunterRevealed and them.id is @resistanceHunter) or
                           (@spyHunterRevealed and them.id is @spyHunter)
                             them.role
+                        else if isSpy(me) and them.id is @hitler
+                            them.role
                         else if me.id is @percival and (them.id is @merlin or them.id is @morgana)
                             if @morgana? then "Merlin?" else "Merlin"
                         else if @resistanceChiefs? and me.id in @resistanceChiefs and
@@ -1252,8 +1255,6 @@ class Game extends Room
                                 if @pretender? then "Deep Agent?" else "Deep Agent"
                             else
                                 undefined
-                        else if isSpy(me) and them.id is @hitler
-                            them.role
                         else
                             undefined
                 }
