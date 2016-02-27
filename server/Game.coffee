@@ -977,7 +977,7 @@ class Game extends Room
                       ++@liberalPolicies if policy
                       ++@fascistPolicies if not policy
                       @sendAll 'hitlerScoreboard', @getHitlerScoreboard
-                      @sendAllMsg "Parliament is hung! A #{if policy then LIBERAL else FASCIST} policy was enacted."
+                      @sendAllMsg "Parliament is hung! A #{if policy then 'LIBERAL' else 'FASCIST'} policy was enacted."
                       @unelectablePlayers = []
                       if @liberalPolicies == 5
                         return @resistanceWins()
