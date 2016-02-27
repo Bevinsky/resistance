@@ -278,6 +278,13 @@ class Game extends Room
             [1, 1, 1, 2, 1],
             [1, 1, 1, 2, 1],
             [1, 1, 1, 2, 1]][@activePlayers.length - 5]
+        @powerTypes = [
+            [0, 0, 1, 4, 4, 0],
+            [0, 0, 1, 4, 4, 0],
+            [0, 2, 3, 4, 4, 0],
+            [0, 2, 3, 4, 4, 0],
+            [2, 2, 3, 4, 4, 0],
+            [2, 2, 3, 4, 4, 0]][@activePlayers.length - 5]
             
         if @gameType is AVALON_GAMETYPE
             whoIsInTheGame = "#{@getAvalonRolesString()} are in this game."
@@ -305,8 +312,15 @@ class Game extends Room
                         roleMsg = "You are a #{p.role}. "
                 if p.id in [@resistanceHunter, @spyHunter, @dummyAgent, @coordinator, @deepAgent, @pretender]
                     roleMsg = "You are the #{p.role}. "
+            if @gameType is SECRET_HITLER_GAMETYPE
+              roleMsg =
+                if p.id is @hitler
+                    "You are the Secret Hitler. "
 
-            p.sendMsg "#{roleMsg}You are #{if p in @spies then 'a SPY' else 'RESISTANCE!'}! There are #{@spies.length} spies in this game."
+            if @gameType is SECRET_HITLER_GAMETYPE
+              p.sendMsg "#{roleMsg}You are #{if p in @spies then 'a FASCIST' else 'a LIBERAL!'}! There are #{@spies.length} fascists in this game."
+            else
+              p.sendMsg "#{roleMsg}You are #{if p in @spies then 'a SPY' else 'RESISTANCE!'}! There are #{@spies.length} spies in this game."
             p.sendMsg whoIsInTheGame if @gameType is AVALON_GAMETYPE or @gameType is HUNTER_GAMETYPE
                 
         delete state.spies
@@ -334,7 +348,10 @@ class Game extends Room
         @db.createGame JSON.stringify(state), gameType, @activePlayers, @spies,
             (err, result) => 
                 @dbId = result
-                @nextRound()
+                if @gameType is SECRET_HITLER_GAMETYPE
+                  @nextElectionRound()
+                else
+                  @nextRound()
                 p.flush() for p in @players
           
     nextRound: ->
@@ -870,7 +887,261 @@ class Game extends Room
         @lobby.onGameUpdate(this)
         @lobby.sendAllChat null, "Game ##{@id} finished: the #{if spiesWin then 'spies' else 'resistance'} won!"
         @db.finishGame @dbId, spiesWin, ->
-
+    
+#-----------------------------------------------------------------------------    
+# Secret Hitler game logic
+#-----------------------------------------------------------------------------   
+    
+    nextElectionRound: ->
+        @shufflePolicyDeck()
+        if @fascistPolicies + @liberalPolicies > 0
+          @unelectablePlayers = [@activePlayers[@chancellor]]
+          @unelectablePlayers.push(@activePlayers[@leader]) if @activePlayers.length > 5
+        if @previousLeader >= 0
+          @leader = @previousLeader
+          @previousLeader = -1
+        @leader = (@leader + 1) % @activePlayers.length
+        @chancellor = -1
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
+        @sendAll 'leader', { player: @activePlayers[@leader].id }
+        @sendAll 'chancellor', { player: -1 }
+        @nominatePhase()
+    
+    nominatePhase: ->
+        @ask 'is selecting their chancellor ...',
+            @makeQuestions [@activePlayers[@leader]],
+                cmd: 'choosePlayers'
+                msg: "Choose a player to be your chancellor.", 
+                n: 1
+                players: @getIds @everyoneExcept @unelectablePlayers.concat(@executedPlayers).concat([@activePlayers[@leader]])
+                (response, doneCb) =>
+                    context = 
+                        msg: "#{response.player} has selected #{@playerNameList(response.choice)} as their chancellor."
+                        team: response.choice
+                        votes: []
+                        cards: {fascist: 0, liberal: 0}
+                    #@votelog.onteam.pop()
+                    #@votelog.onteam.push (p.id for p in response.choice)
+                    @chancellor = (for p, i in @activePlayers when p.id is response.choice[0].id
+                                     i)[0]
+                    @sendAll 'chancellor', { player: @activePlayers[@chancellor].id }
+                    @electPhase context
+                    doneCb()
+    
+    electPhase: (context) ->
+        responses = []
+        @sendAll '-vote'
+        @ask 'electing the government ...',
+            @makeQuestions @getIds @everyoneExcept @executedPlayers,
+                cmd: 'choose'
+                msg: context.msg
+                choices: ['Approve', 'Reject']
+                (response, doneCb) => responses.push(response); doneCb()
+            =>
+                for response in responses
+                    @votelog.approve[@votelog.approve.length - 1].push(response.player.id) if response.choice is 'Approve'
+                    @votelog.reject[@votelog.reject.length - 1].push(response.player.id) if response.choice is 'Reject'
+                    @sendAll '+vote', { player:response.player.id, vote:response.choice }
+                context.votes = context.votes.concat(responses)
+                # votes are collected.
+                playerIdsApproving = (vote.player.id for vote in context.votes when vote.choice is 'Approve')
+                playerIdsOnTeam = (player.id for player in context.team)
+                
+                # approvalList = (onTeam, approving) =>
+                    # @playerNameList (player for player in @activePlayers when (player.id in playerIdsApproving) is approving and (player.id in playerIdsOnTeam) is onTeam)
+                
+                # @gameLog ''
+                # @gameLog "Team members approving: #{approvalList(true, true)}"
+                # @gameLog "Team members rejecting: #{approvalList(true, false)}"
+                # @gameLog "Non-team members approving: #{approvalList(false, true)}"
+                # @gameLog "Non-team members rejecting: #{approvalList(false, false)}"
+                # @gameLog ''
+                
+                if playerIdsApproving.length > @everyoneExcept(@executedPlayers).length / 2
+                    @sendAllMsgAndGameLog "The government is ACCEPTED."
+                    if @activePlayers[@chancellor].id is @hitler and @fascistPolicies >= 3
+                      @sendAllMsgAndGameLog "#{@activePlayers[@chancellor].name} was the Secret Hitler!"
+                      return @spiesWin()
+                    @round = 1
+                    for i in [0 ... 3]
+                      policy = @drawPolicy()
+                      context.cards.liberal++ if policy
+                      context.cards.fascist++ if not policy
+                    @drawPhase context
+                else
+                    #@sendAllMsgAndGameLog "The mission team is REJECTED."
+                    @round++
+                    if @round > 3
+                      @round = 1
+                      policy = @drawPolicy()
+                      ++@liberalPolicies if policy
+                      ++@fascistPolicies if not policy
+                      @sendAll 'hitlerScoreboard', @getHitlerScoreboard
+                      @sendAllMsg "Parliament is hung! A #{if policy then LIBERAL else FASCIST} policy was enacted."
+                      @unelectablePlayers = []
+                      if @liberalPolicies == 5
+                        return @resistanceWins()
+                      if @fascistPolicies == 6
+                        return @spiesWin()
+                    @nextElectionRound()
+    
+    drawPhase: (context) ->
+        questionMessage = ""
+        if context.cards.liberal is 3
+          questionMessage = "You draw THREE LIBERAL policies. Which do you discard?"
+        else if context.cards.liberal is 2 and context.cards.fascist is 1
+          questionMessage = "You draw TWO LIBERAL and ONE FASCIST policy. Which do you discard?"
+        else if context.cards.fascist is 2 and context.cards.liberal is 1
+          questionMessage = "You draw ONE LIBERAL and TWO FASCIST policies. Which do you discard?"
+        else if context.cards.fascist is 3
+          questionMessage = "You draw THREE FASCIST policies. Which do you discard?"
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard
+        @ask 'selecting which policy to discard...',
+            @makeQuestions @activePlayers[@leader],
+                cmd: 'choose'
+                msg: questionMessage
+                choices: ['Liberal', 'Fascist'],
+                (response, doneCb) =>
+                    if (context.cards.liberal is 0 and response.choice is 'Liberal') or
+                       (context.cards.fascist is 0 and response.choice is 'Fascist')
+                      response.player.sendMsg "You don't have any #{response.choice} cards! Your decision has been changed."
+                      response.choice = if response.choice is 'Liberal' then 'Fascist' else 'Liberal'
+                    if response.choice is 'Liberal'
+                      --context.cards.liberal
+                      ++@discardLiberal
+                    else
+                      --context.cards.fascist
+                      ++@discardFascist
+                    @enactPhase context
+                    doneCb()
+    
+    enactPhase: (context) ->
+        questionMessage = ""
+        if context.cards.liberal is 2
+          questionMessage = "You are handed TWO LIBERAL policies. Which do you enact?"
+        else if context.cards.liberal is 1 and context.cards.fascist is 1
+          questionMessage = "You are handed ONE LIBERAL and ONE FASCIST policy. Which do you enact?"
+        else if context.cards.fascist is 3
+          questionMessage = "You are handed TWO FASCIST policies. Which do you enact?"
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard
+        @ask 'selecting which policy to enact...',
+            @makeQuestions @activePlayers[@chancellor],
+                cmd: 'choose'
+                msg: questionMessage
+                choices: ['Liberal', 'Fascist'],
+                (response, doneCb) =>
+                    if (context.cards.liberal is 0 and response.choice is 'Liberal') or
+                       (context.cards.fascist is 0 and response.choice is 'Fascist')
+                      response.player.sendMsg "You don't have any #{response.choice} cards! Your decision has been changed."
+                      response.choice = if response.choice is 'Liberal' then 'Fascist' else 'Liberal'
+                    # @unelectablePlayers = [@activePlayers[@chancellor]]
+                    # @unelectablePlayers.push(@activePlayers[@leader]) if @activePlayers.length > 5
+                    if response.choice is 'Liberal'
+                      ++@discardFascist
+                      ++@liberalPolicies
+                      @policyWasEnacted context, true
+                    else
+                      ++@discardLiberal
+                      ++@fascistPolicies
+                      @policyWasEnacted context, false
+                    doneCb()
+    
+    policyWasEnacted: (context, wasLiberal) ->
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard
+        @sendAllMsgAndGameLog "#{activePlayers[@chancellor].name} enacted a #{if wasLiberal then 'LIBERAL' else 'FASCIST'} policy!"
+        if wasLiberal
+          return @resistanceWins() if @liberalPolicies == 5
+          @nextElectionRound()
+        else
+          return @spiesWin() if @fascistPolicies == 6
+          return @executePhase() if @fascistPolicies >= 4
+          return @specialElectionPhase() if @activePlayers.length >= 7 and @fascistPolicies == 3
+          return @investigatePhase() if @activePlayers.length >= 7 and @fascistPolicies == 2
+          return @investigatePhase() if @activePlayers.length >= 9 and @fascistPolicies == 1
+          return @peekPhase() if @activePlayers.length <= 6 and @fascistPolicies == 3
+          @nextElectionRound()
+    
+    investigatePhase: ->
+        @ask 'is deciding who to interrogate...',
+            @makeQuestions [@activePlayers[@leader]],
+                cmd: 'choosePlayers'
+                msg: "Choose which player to interrogate.", 
+                n: 1
+                players: @getIds @everyoneExcept @executedPlayers.concat([@activePlayers[@leader]])
+                (response, doneCb) =>
+                    @sendAllMsgAndGameLog "#{response.player.name} chooses to interrogate #{response.choice[0].name}!", @everyoneExcept @activePlayers[@leader]
+                    role = if response.choice[0].id in @spies then 'FASCIST' else 'LIBERAL'
+                    response.player.sendMsg "You interrogate #{response.choice[0].name}. #{response.choice[0].name} is a #{role}!"
+                    @nextElectionRound()
+                    doneCb()
+    
+    specialElectionPhase: ->
+        @previousLeader = @leader
+        
+        @chancellor = -1
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
+        @sendAll 'leader', { player: @activePlayers[@leader].id }
+        @sendAll 'chancellor', { player: -1 }
+        @sendAllMsg "The president has called for a special election!"
+        @ask 'is selecting the next president...',
+            @makeQuestions [@activePlayers[@leader]],
+                cmd: 'choosePlayers'
+                msg: "Choose a player to be the next president.", 
+                n: 1
+                players: @getIds @everyoneExcept @executedPlayers.concat([@activePlayers[@leader]])
+                (response, doneCb) =>
+                    @sendAllMsg "#{response.player} has selected #{@playerNameList(response.choice)} to be the next president."
+                    @leader = (for p, i in @activePlayers when p.id is response.choice[0].id
+                                     i)[0]
+                    @sendAll 'leader', { player: @activePlayers[@leader].id }
+                    @nominatePhase
+                    doneCb()
+    
+    peekPhase: ->
+        @peek = []
+        for i in [0 ... 3]
+          @peek.push @drawPolicy()
+        @sendAllMsgAndGameLog "#{response.player.name} is peeking at the next three policies!", @everyoneExcept @activePlayers[@leader]
+        @activePlayers[@leader].sendMsg "You peek at the next three policies! From top to bottom, they are #{@peek.map((p) -> if p then 'LIBERAL' else 'FASCIST').join ', '}."
+        @nextElectionRound()
+    
+    executePhase: ->
+        @ask 'is deciding who to execute...',
+            @makeQuestions [@activePlayers[@leader]],
+                cmd: 'choosePlayers'
+                msg: "Choose which player to execute.", 
+                n: 1
+                players: @getIds @everyoneExcept @executedPlayers.concat([@activePlayers[@leader]])
+                (response, doneCb) =>
+                    @sendAllMsgAndGameLog "#{response.player.name} chooses to execute #{response.choice[0].name}!"
+                    if response.choice[0].id is @hitler
+                      @sendAllMsgAndGameLog "#{response.choice[0].name} was the Secret Hitler!"
+                      return @resistanceWins
+                    @sendAllMsgAndGameLog "#{response.choice[0].name} was NOT the Secret Hitler!"
+                    @executedPlayers.push response.choice[0]
+                    @nextElectionRound()
+                    doneCb()
+    
+    # true is liberal, false is fascist
+    drawPolicy: ->
+        if @peek.length > 0
+          policy = @peek.shift()
+        else
+          policy = Math.random() < (@drawLiberal / (@drawLiberal + @drawFascist))
+        --@drawLiberal if policy
+        --@drawFascist if not policy
+        return policy
+    
+    shufflePolicyDeck ->
+        if @drawLiberal + @drawFascist < 3
+          @drawLiberal += @discardLiberal
+          @drawFascist += @discardFascist
+          @discardLiberal = 0
+          @discardFascist = 0
+          @peek = []
+          @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
+          @sendAllMsg "The policy deck was reshuffled." #todo: math here
+    
 #-----------------------------------------------------------------------------    
 # Helper functions
 #-----------------------------------------------------------------------------    
@@ -950,6 +1221,11 @@ class Game extends Room
                     (isSpy(me) and me.id isnt @deepAgent and
                      not (@pretender? and them.id is @deepAgent)) or
                     (@spyHunterRevealed and them.id is @spyHunter)
+                else if @gameType is SECRET_HITLER_GAMETYPE
+                  iKnowTheyAreASpy = 
+                    me.id is them.id or
+                    (@activePlayers.length < 7) or
+                    (me.id is not @hitler)
                 else
                   iKnowTheyAreASpy =
                     me.id is them.id or
@@ -977,12 +1253,19 @@ class Game extends Room
                                 if @pretender? then "Deep Agent?" else "Deep Agent"
                             else
                                 undefined
+                        else if isSpy(me) and them.id is @hitler
+                            them.role
                         else
                             undefined
                 }
       
         me.send 'players', { players:response, amSpy:isSpy(me) }
-                
+    
+    sendDecks: ->
+        @sendAll 'decks',
+            draw: @drawLiberal + @drawFascist
+            discard: @discardLiberal + @discardFascist
+    
     askOne: (player, cmd, cb) ->
         question = JSON.parse(JSON.stringify(cmd))
         question.choiceId = @nextId++
@@ -1058,6 +1341,7 @@ class Game extends Room
         roles = []
         if @gameType is AVALON_GAMETYPE then roles = @getAvalonRoles()
         if @gameType is HUNTER_GAMETYPE then roles = @getHunterRolesForGame()
+        if @gameType is SECRET_HITLER_GAMETYPE then roles = @getSecretHitlerRoles()
         for i in [roles.filter((i) -> i not in resistanceRoles).length ... spiesRequired]
             roles.push('Spy')
         for i in [roles.length ... @activePlayers.length]
@@ -1068,7 +1352,20 @@ class Game extends Room
           state.resistanceChiefs = []
           state.spyChiefs = []
           state.earlyAccusationUsed = false
-          
+        
+        if @gameType is SECRET_HITLER_GAMETYPE
+          state.chancellor = 0
+          state.previousLeader = -1
+          state.unelectablePlayers = []
+          state.executedPlayers = []
+          state.liberalPolicies = 0
+          state.fascistPolicies = 0
+          state.drawLiberal = 6
+          state.drawFascist = 11
+          state.discardLiberal = 0
+          state.discardFascist = 0
+          state.peek = []
+        
         for role, i in roles
             @activePlayers[i].role = role
             state.spies.push(@activePlayers[i]) if role not in resistanceRoles
@@ -1088,6 +1385,8 @@ class Game extends Room
               state.coordinator = @activePlayers[i].id if role is 'Coordinator'
               state.deepAgent = @activePlayers[i].id if role is 'Deep Agent'
               state.pretender = @activePlayers[i].id if role is 'Pretender'
+            if @gameType is SECRET_HITLER_GAMETYPE
+              state.hitler = @activePlayers[i].id if role is 'Hitler'
 
         if @avalonOptions.useLadyOfTheLake
             state.ladyOfTheLake = @activePlayers[state.leader].id
@@ -1130,6 +1429,18 @@ class Game extends Room
             score: @score[..]
             missionTeamSizes: @missionTeamSizes
             failuresRequired: @failuresRequired
+        }
+
+    getHitlerScoreboard: ->
+        return {
+            round: @round
+            fascistPolicies: @fascistPolicies
+            liberalPolicies: @liberalPolicies
+            drawSize: @drawLiberal + @drawFascist
+            discardSize: @discardLiberal + @discardFascist
+            powerTypes: @powerTypes
+            unelectable: @getIds @unelectablePlayers
+            executed: @getIds @executedPlayers
         }
 
     setGuns: (guns) ->
@@ -1308,3 +1619,6 @@ class Game extends Room
         roles = @getHunterRoles()
         roles.push('Inquisitor') if @hunterOptions.useInquisitor
         return @nameList(roles)
+
+    getSecretHitlerRoles: ->
+        return ['Hitler']

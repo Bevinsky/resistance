@@ -26,8 +26,9 @@ HUNTER_GAMETYPE = 5
 # also not really a gametype, but stored in the DB to distinguish Hunter games 
 # roles besides Chiefs and Hunters.
 HUNTER_PLUS_GAMETYPE = 6
+SECRET_HITLER_GAMETYPE = 7
 
-allGameTypes = [ORIGINAL_GAMETYPE, AVALON_GAMETYPE, BASIC_GAMETYPE, HUNTER_GAMETYPE]
+allGameTypes = [ORIGINAL_GAMETYPE, AVALON_GAMETYPE, BASIC_GAMETYPE, HUNTER_GAMETYPE, SECRET_HITLER_GAMETYPE]
 
 xmlEscape = (s) ->
     return s

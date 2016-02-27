@@ -230,6 +230,28 @@ var onLeader = function(data) {
     drawVoteLog();
 }
 
+var onChancellor = function(data) {
+    g.chancellor = data.chancellor;
+    if (g.chancellor === -1) {
+        $('#chancellor-star').hide()
+    }
+    else {
+        var p = $('#player' + g.leader).position();
+        $('#chancellor-star').css({
+            left: p.left + leaderOffsetX,
+            top: p.top + leaderOffsetY,
+        });
+        $('#chancellor-star').show()
+        p = $('#player' + g.chancellor).position();
+        $('#chancellor-star').animate({
+            left: p.left + leaderOffsetX,
+            top: p.top + leaderOffsetY,
+        }, null, null, drawPlayers);
+    }
+    //g.votelog.leader[g.votelog.leader.length - 1] = g.leader;
+    //drawVoteLog();
+}
+
 var onPlayers = function(data) {
     g.players = data.players;
     for (var i = 0; i < g.players.length; ++i) {
@@ -274,6 +296,42 @@ var onScoreboard = function(data) {
         g.votelog.investigator.push(null);
         drawVoteLog();
     }
+}
+
+var onHitlerScoreboard = function(data) {
+    g.scoreboard = data
+    
+    var html = "";
+    html += "<div style='width:50px; display:inline-block; vertical-align:middle'>" +
+            "<button class='btn disabled btn-primary' style='width:40px'>" + data.drawSize +
+            "</button><p>Draw</p></div>"
+    
+    html += "<div style='display: inline-block;vertical-align:middle'>"
+    for (var i = 0; i < 6; i++) {
+        var color = data.fascistPolicies > i ? " btn-danger" : "";
+        var letter = ['&nbsp;', 'P', 'I', 'SE', 'E'][data.powerTypes[i]]
+        if (i >= 3) letter += '*';
+        html += "<button class='btn disabled" + color + "' style='width:30px'>" + letter + "</button>"
+    }
+    html += "<p></p>"
+    for (var i = 0; i < 5; i++) {
+        var color = data.liberalPolicies > i ? " btn-primary" : "";
+        if (i >= 3) letter += '*';
+        html += "<button class='btn disabled" + color + "' style='width:30px'>&nbsp;</button>"
+    }
+    html += "<p></p>Failed votes:" + (data.round - 1);
+    html += "</div>"
+    
+    html += "<div style='width:50px; display:inline-block; vertical-align:middle'>" +
+        "<button class='btn disabled btn-danger' style='width:40px'>" + data.discardSize +
+        "</button><p>Discard</p></div>"
+    
+    
+    $('#scoreboard').css({top : '160px'})
+    $('#scoreboard').html(html);
+    
+    drawHitlerSymbols()
+    
 }
 
 var onAddCard = function(data) {
@@ -392,8 +450,10 @@ var handlers = {
     'chooseTakeCard': onChoose,
     'cancelChoose': onCancelChoose,    
     'leader': onLeader,
+    'chancellor': onChancellor,
     'players': onPlayers,
     'scoreboard': onScoreboard,
+    'hitlerScoreboard': onHitlerScoreboard,
     '+card': onAddCard,
     '-card': onSubCard,
     '+vote': onAddVote,
@@ -414,7 +474,8 @@ var drawGames = function() {
         1: 'Original',
         2: 'Avalon',
         3: 'Basic',
-        5: 'Hunter'
+        5: 'Hunter',
+        7: 'Secret Hitler'
     };
     for (var i = 0; i < g.games.length; ++i) {
         html += 
@@ -465,6 +526,20 @@ var drawInvestigator = function() {
 
   $('#investigator-field').html(html);
   $('#investigator-mark').click(onClickUserTile(g.investigator));
+}
+
+var drawHitlerSymbols = function() {
+    var html = '';
+    for (var i = 0; i < g.scoreboard.unelectable.length; ++i) {
+        var pos = $('#player' + g.scoreboard.unelectable[i]).position();
+        html += '<img id=forbidden' + i + ' src="forbidden.png" style="position:absolute; top:' + (pos.top + leaderOffsetY) + 'px; left:' + (pos.left + leaderOffsetX) + 'px">';
+    }
+    for (var i = 0; i < g.scoreboard.executed.length; ++i) {
+        var pos = $('#player' + g.scoreboard.executed[i]).position();
+        html += '<img id=skull' + i + ' src="skull.png" style="position:absolute; top:' + (pos.top + leaderOffsetY) + 'px; left:' + (pos.left + leaderOffsetX) + 'px">';
+    }
+    
+    $('#guns-field').html(html);
 }
 
 var drawGameLog = function() {
@@ -618,6 +693,7 @@ var drawPlayers = function(data) {
     
     if (g.players.length > 0) {
         html += "<img id=leader-star src=leader.png style='position:absolute'>";
+        html += "<img id=chancellor-star src=chancellor.png style='position:absolute; display:none'>"
     }
     
     $('#game-field').html(html);
@@ -654,6 +730,12 @@ var arrangePlayers = function(data) {
                 .css('left', g.players[i].x + leaderOffsetX)
                 .css('top',  g.players[i].y + leaderOffsetY)
                 .click(onClickUserTile(g.leader));
+        }
+        if (g.chancellor === g.players[i].id) {
+            $('#chancellor-star')
+                .css('left', g.players[i].x + leaderOffsetX)
+                .css('top',  g.players[i].y + leaderOffsetY)
+                .click(onClickUserTile(g.chancellor));
         }
         
         if (g.investigator === g.players[i].id) {
