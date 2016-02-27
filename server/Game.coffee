@@ -912,7 +912,7 @@ class Game extends Room
                 cmd: 'choosePlayers'
                 msg: "Choose a player to be your chancellor.", 
                 n: 1
-                players: @getIds @everyoneExcept @unelectablePlayers.concat(@executedPlayers).concat([@activePlayers[@leader]])
+                players: @getIds(@everyoneExcept(@unelectablePlayers.concat(@executedPlayers).concat([@activePlayers[@leader]])))
                 (response, doneCb) =>
                     context = 
                         msg: "#{response.player} has selected #{@playerNameList(response.choice)} as their chancellor."
@@ -931,7 +931,7 @@ class Game extends Room
         responses = []
         @sendAll '-vote'
         @ask 'electing the government ...',
-            @makeQuestions @getIds(@everyoneExcept(@executedPlayers)) ,
+            @makeQuestions @everyoneExcept(@executedPlayers),
                 cmd: 'choose'
                 msg: context.msg
                 choices: ['Approve', 'Reject']
@@ -1024,7 +1024,7 @@ class Game extends Room
           questionMessage = "You are handed TWO FASCIST policies. Which do you enact?"
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard
         @ask 'selecting which policy to enact...',
-            @makeQuestions @activePlayers[@chancellor],
+            @makeQuestions [@activePlayers[@chancellor]],
                 cmd: 'choose'
                 msg: questionMessage
                 choices: ['Liberal', 'Fascist'],
