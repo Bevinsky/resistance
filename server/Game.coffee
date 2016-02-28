@@ -84,8 +84,10 @@ class Game extends Room
         player.send 'status', { msg:@status }
         player.send('gamelog', log) for log in @log
         player.send('+card', { player:card.player.id, card:card.card }) for card in @cards
-        player.send 'scoreboard', @getScoreboard() if @gameStarted
+        player.send 'scoreboard', @getScoreboard() if @gameStarted and @gameType isnt SECRET_HITLER_GAMETYPE
+        player.send('hitlerScoreboard', @getHitlerScoreboard()) if @gameStarted and @gameType is SECRET_HITLER_GAMETYPE
         player.send 'leader', { player:@activePlayers[@leader].id } if @activePlayers.length > 0
+        player.send('chancellor', { player: if @chancellor >= 0 then @activePlayers[@chancellor].id else -1}) if @gameType is SECRET_HITLER_GAMETYPE
         player.send(q.question.cmd, q.question) for q in @questions when q.player.id is player.id
         player.send 'gameover' if @gameFinished
         player.send 'guns', { players:@guns }
@@ -893,18 +895,17 @@ class Game extends Room
     
     nextElectionRound: ->
         @shufflePolicyDeck()
-        if @fascistPolicies + @liberalPolicies > 0
-          @unelectablePlayers = [@activePlayers[@chancellor]]
-          @unelectablePlayers.push(@activePlayers[@leader]) if @activePlayers.length > 5
         if @previousLeader >= 0
           @leader = @previousLeader
           @previousLeader = -1
-        while @activePlayers[@leader] not in @unelectablePlayers.concat(@executedPlayers)
+        @leader = (@leader + 1) % @activePlayers.length
+        while @activePlayers[@leader] in @executedPlayers
           @leader = (@leader + 1) % @activePlayers.length
         @chancellor = -1
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         @sendAll 'leader', { player: @activePlayers[@leader].id }
         @sendAll 'chancellor', { player: -1 }
+        @sendAll '-vote'
         @nominatePhase()
     
     nominatePhase: ->
@@ -1047,8 +1048,11 @@ class Game extends Room
                     doneCb()
     
     policyWasEnacted: (context, wasLiberal) ->
-        @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         @sendAllMsgAndGameLog "#{@activePlayers[@chancellor].name} enacted a #{if wasLiberal then 'LIBERAL' else 'FASCIST'} policy!"
+        if @fascistPolicies + @liberalPolicies > 0
+          @unelectablePlayers = [@activePlayers[@chancellor]]
+          @unelectablePlayers.push(@activePlayers[@leader]) if @activePlayers.length > 5
+        @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         if wasLiberal
           return @resistanceWins() if @liberalPolicies == 5
           @nextElectionRound()
@@ -1083,7 +1087,7 @@ class Game extends Room
         @sendAll 'leader', { player: @activePlayers[@leader].id }
         @sendAll 'chancellor', { player: -1 }
         @sendAllMsg "The president has called for a special election!"
-        @ask 'is selecting the next president...',
+        @ask 'selecting the next president...',
             @makeQuestions [@activePlayers[@leader]],
                 cmd: 'choosePlayers'
                 msg: "Choose a player to be the next president.", 
@@ -1094,7 +1098,7 @@ class Game extends Room
                     @leader = (for p, i in @activePlayers when p.id is response.choice[0].id
                                      i)[0]
                     @sendAll 'leader', { player: @activePlayers[@leader].id }
-                    @nominatePhase
+                    @nominatePhase()
                     doneCb()
     
     peekPhase: ->
@@ -1116,7 +1120,7 @@ class Game extends Room
                     @sendAllMsgAndGameLog "#{response.player.name} chooses to execute #{response.choice[0].name}!"
                     if response.choice[0].id is @hitler
                       @sendAllMsgAndGameLog "#{response.choice[0].name} was the Secret Hitler!"
-                      return @resistanceWins
+                      return @resistanceWins()
                     @sendAllMsgAndGameLog "#{response.choice[0].name} was NOT the Secret Hitler!"
                     @executedPlayers.push response.choice[0]
                     @nextElectionRound()

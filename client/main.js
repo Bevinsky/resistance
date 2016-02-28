@@ -231,7 +231,7 @@ var onLeader = function(data) {
 }
 
 var onChancellor = function(data) {
-    g.chancellor = data.chancellor;
+    g.chancellor = data.player;
     if (g.chancellor === -1) {
         $('#chancellor-star').hide()
     }
@@ -246,7 +246,7 @@ var onChancellor = function(data) {
         $('#chancellor-star').animate({
             left: p.left + leaderOffsetX,
             top: p.top + leaderOffsetY,
-        }, null, null, drawPlayers);
+        });
     }
     //g.votelog.leader[g.votelog.leader.length - 1] = g.leader;
     //drawVoteLog();
@@ -311,13 +311,13 @@ var onHitlerScoreboard = function(data) {
         var color = data.fascistPolicies > i ? " btn-danger" : "";
         var letter = ['&nbsp;', 'P', 'I', 'SE', 'E'][data.powerTypes[i]]
         if (i >= 3) letter += '*';
-        html += "<button class='btn disabled" + color + "' style='width:30px'>" + letter + "</button>"
+        html += "<button class='btn disabled" + color + "' style='width:40px'>" + letter + "</button>"
     }
     html += "<p></p>"
     for (var i = 0; i < 5; i++) {
         var color = data.liberalPolicies > i ? " btn-primary" : "";
         if (i >= 3) letter += '*';
-        html += "<button class='btn disabled" + color + "' style='width:30px'>&nbsp;</button>"
+        html += "<button class='btn disabled" + color + "' style='width:40px'>&nbsp;</button>"
     }
     html += "<p></p>Failed votes:" + (data.round - 1);
     html += "</div>"
@@ -531,8 +531,10 @@ var drawInvestigator = function() {
 var drawHitlerSymbols = function() {
     var html = '';
     for (var i = 0; i < g.scoreboard.unelectable.length; ++i) {
-        var pos = $('#player' + g.scoreboard.unelectable[i]).position();
-        html += '<img id=forbidden' + i + ' src="forbidden.png" style="position:absolute; top:' + (pos.top + leaderOffsetY) + 'px; left:' + (pos.left + leaderOffsetX) + 'px">';
+        if (g.scoreboard.unelectable[i] != g.leader) {
+            var pos = $('#player' + g.scoreboard.unelectable[i]).position();
+            html += '<img id=forbidden' + i + ' src="forbidden.png" style="position:absolute; top:' + (pos.top + leaderOffsetY) + 'px; left:' + (pos.left + leaderOffsetX) + 'px">';
+        }
     }
     for (var i = 0; i < g.scoreboard.executed.length; ++i) {
         var pos = $('#player' + g.scoreboard.executed[i]).position();
@@ -732,7 +734,7 @@ var arrangePlayers = function(data) {
                 .click(onClickUserTile(g.leader));
         }
         if (g.chancellor === g.players[i].id) {
-            $('#chancellor-star')
+            $('#chancellor-star').show()
                 .css('left', g.players[i].x + leaderOffsetX)
                 .css('top',  g.players[i].y + leaderOffsetY)
                 .click(onClickUserTile(g.chancellor));
@@ -749,6 +751,8 @@ var arrangePlayers = function(data) {
         var pos = $('#player' + g.guns[i]).position();
         $('#gun' + i).css('left', pos.left + gunsOffsetX).css('top', pos.top + gunsOffsetY);
     }
+    if (g.scoreboard.unelectable != undefined)
+        drawHitlerSymbols()
 }
 
 var pointsOnAnEllipse = function(width, height, n) {
@@ -899,6 +903,7 @@ $(function() {
     $('#new-game-avalon').click(onCreateGame(2));
     $('#new-game-basic').click(onCreateGame(3));
     $('#new-game-hunter').click(onCreateGame(5));
+    $('#new-game-hitler').click(onCreateGame(7));
     $('#leave-game').click(onLeaveGame);
     $('#prev-gamelog').click(onPrevGameLog);
     $('#next-gamelog').click(onNextGameLog);
