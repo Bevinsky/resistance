@@ -918,7 +918,7 @@ class Game extends Room
                 (response, doneCb) =>
                     context = 
                         msg: "#{response.player} has selected #{@playerNameList(response.choice)} as their chancellor."
-                        team: response.choice
+                        team: []
                         votes: []
                         cards: {fascist: 0, liberal: 0}
                     #@votelog.onteam.pop()
@@ -926,6 +926,9 @@ class Game extends Room
                     @chancellor = (for p, i in @activePlayers when p.id is response.choice[0].id
                                      i)[0]
                     @sendAll 'chancellor', { player: @activePlayers[@chancellor].id }
+                    @gameLog "#{response.player} has selected #{@playerNameList(response.choice)} as their chancellor."
+                    context.team.push @activePlayers[@chancellor]
+                    context.team.push @activePlayers[@leader]
                     @electPhase context
                     doneCb()
     
@@ -948,15 +951,15 @@ class Game extends Room
                 playerIdsApproving = (vote.player.id for vote in context.votes when vote.choice is 'Approve')
                 playerIdsOnTeam = (player.id for player in context.team)
                 
-                # approvalList = (onTeam, approving) =>
-                    # @playerNameList (player for player in @activePlayers when (player.id in playerIdsApproving) is approving and (player.id in playerIdsOnTeam) is onTeam)
+                approvalList = (onTeam, approving) =>
+                    @playerNameList (player for player in @activePlayers when (player.id in playerIdsApproving) is approving and (player.id in playerIdsOnTeam) is onTeam)
                 
-                # @gameLog ''
-                # @gameLog "Team members approving: #{approvalList(true, true)}"
-                # @gameLog "Team members rejecting: #{approvalList(true, false)}"
-                # @gameLog "Non-team members approving: #{approvalList(false, true)}"
-                # @gameLog "Non-team members rejecting: #{approvalList(false, false)}"
-                # @gameLog ''
+                @gameLog ''
+                @gameLog "Government members approving: #{approvalList(true, true)}"
+                @gameLog "Government members rejecting: #{approvalList(true, false)}"
+                @gameLog "Non-government members approving: #{approvalList(false, true)}"
+                @gameLog "Non-government members rejecting: #{approvalList(false, false)}"
+                @gameLog ''
                 
                 if playerIdsApproving.length > @everyoneExcept(@executedPlayers).length / 2
                     @sendAllMsgAndGameLog "The government is ACCEPTED."
@@ -977,9 +980,9 @@ class Game extends Room
                       policy = @drawPolicy()
                       ++@liberalPolicies if policy
                       ++@fascistPolicies if not policy
-                      @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
-                      @sendAllMsg "Parliament is hung! A #{if policy then 'LIBERAL' else 'FASCIST'} policy was enacted."
                       @unelectablePlayers = []
+                      @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
+                      @sendAllMsgAndGameLog "Parliament is hung! A #{if policy then 'LIBERAL' else 'FASCIST'} policy was enacted."
                       if @liberalPolicies == 5
                         return @resistanceWins()
                       if @fascistPolicies == 6
@@ -1016,7 +1019,7 @@ class Game extends Room
                     @enactPhase context
                     doneCb()
     
-    enactPhase: (context) ->
+    enactPhase: (context, canVeto = true) ->
         questionMessage = ""
         if context.cards.liberal is 2
           questionMessage = "You are handed TWO LIBERAL policies. Which do you enact?"
@@ -1025,27 +1028,47 @@ class Game extends Room
         else if context.cards.fascist is 2
           questionMessage = "You are handed TWO FASCIST policies. Which do you enact?"
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
+        choices = ['Liberal', 'Fascist']
+        choices.push('Veto!') if canVeto and @fascistPolicies == 5
         @ask 'selecting which policy to enact...',
             @makeQuestions [@activePlayers[@chancellor]],
                 cmd: 'choose'
                 msg: questionMessage
-                choices: ['Liberal', 'Fascist'],
+                choices: choices,
                 (response, doneCb) =>
                     if (context.cards.liberal is 0 and response.choice is 'Liberal') or
                        (context.cards.fascist is 0 and response.choice is 'Fascist')
                       response.player.sendMsg "You don't have any #{response.choice} cards! Your decision has been changed."
                       response.choice = if response.choice is 'Liberal' then 'Fascist' else 'Liberal'
-                    # @unelectablePlayers = [@activePlayers[@chancellor]]
-                    # @unelectablePlayers.push(@activePlayers[@leader]) if @activePlayers.length > 5
+                    
                     if response.choice is 'Liberal'
                       ++@discardFascist
                       ++@liberalPolicies
                       @policyWasEnacted context, true
-                    else
+                    else if response.choice is 'Fascist'
                       ++@discardLiberal
                       ++@fascistPolicies
                       @policyWasEnacted context, false
+                    else if response.choice is 'Veto!'
+                      @vetoPhase context
                     doneCb()
+    
+    vetoPhase: (context) ->
+        @sendAllMsgAndGameLog "#{@activePlayers[@chancellor].name} wishes to VETO the agenda!"
+        @ask 'deciding whether to allow the veto...',
+            @makeQuestions [@activePlayers[@leader]],
+                cmd: 'choose'
+                msg: 'Do you allow the veto?'
+                choices: ['Allow', 'Disallow'],
+                (response, doneCb) =>
+                    if response.choice is 'Allow'
+                      @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} has permitted the veto!"
+                      @nextElectionRound()
+                    else if response.choice is 'Disallow'
+                      @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} has rejected the veto!"
+                      @enactPhase(context, false)
+                    doneCb()
+    
     
     policyWasEnacted: (context, wasLiberal) ->
         @sendAllMsgAndGameLog "#{@activePlayers[@chancellor].name} enacted a #{if wasLiberal then 'LIBERAL' else 'FASCIST'} policy!"
@@ -1066,16 +1089,17 @@ class Game extends Room
           @nextElectionRound()
     
     investigatePhase: ->
-        @ask 'is deciding who to interrogate...',
+        @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} has invoked the INVESTIGATE presidential power!"
+        @ask 'is deciding who to investigate...',
             @makeQuestions [@activePlayers[@leader]],
                 cmd: 'choosePlayers'
-                msg: "Choose which player to interrogate.", 
+                msg: "Choose which player to investigate.", 
                 n: 1
                 players: @getIds(@everyoneExcept(@executedPlayers.concat([@activePlayers[@leader]])))
                 (response, doneCb) =>
-                    @sendAllMsgAndGameLog "#{response.player.name} chooses to interrogate #{response.choice[0].name}!", @everyoneExcept @activePlayers[@leader]
-                    role = if response.choice[0].id in @spies then 'FASCIST' else 'LIBERAL'
-                    response.player.sendMsg "You interrogate #{response.choice[0].name}. #{response.choice[0].name} is a #{role}!"
+                    @sendAllMsgAndGameLog "#{response.player.name} chooses to investigate #{response.choice[0].name}!", @everyoneExcept @activePlayers[@leader]
+                    role = if response.choice[0] in @spies then 'FASCIST' else 'LIBERAL'
+                    response.player.sendMsg "You investigate #{response.choice[0].name}. #{response.choice[0].name} is a #{role}!"
                     @nextElectionRound()
                     doneCb()
     
@@ -1086,7 +1110,7 @@ class Game extends Room
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         @sendAll 'leader', { player: @activePlayers[@leader].id }
         @sendAll 'chancellor', { player: -1 }
-        @sendAllMsg "The president has called for a special election!"
+        @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} has invoked the SPECIAL ELECTION presidential power!"
         @ask 'selecting the next president...',
             @makeQuestions [@activePlayers[@leader]],
                 cmd: 'choosePlayers'
@@ -1105,11 +1129,13 @@ class Game extends Room
         @peek = []
         for i in [0 ... 3]
           @peek.push @drawPolicy(false)
-        @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} is peeking at the next three policies!", @everyoneExcept @activePlayers[@leader]
+        @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} has invoked the SPECIAL ELECTION presidential power!"
+        #@sendAllMsgAndGameLog "#{@activePlayers[@leader].name} is peeking at the next three policies!", @everyoneExcept @activePlayers[@leader]
         @activePlayers[@leader].sendMsg "You peek at the next three policies! From top to bottom, they are #{@peek.map((p) -> if p then 'LIBERAL' else 'FASCIST').join ', '}."
         @nextElectionRound()
     
     executePhase: ->
+        @sendAllMsgAndGameLog "#{@activePlayers[@leader].name} has invoked the EXECUTION presidential power!"
         @ask 'is deciding who to execute...',
             @makeQuestions [@activePlayers[@leader]],
                 cmd: 'choosePlayers'

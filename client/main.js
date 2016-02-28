@@ -311,13 +311,13 @@ var onHitlerScoreboard = function(data) {
         var color = data.fascistPolicies > i ? " btn-danger" : "";
         var letter = ['&nbsp;', 'P', 'I', 'SE', 'E'][data.powerTypes[i]]
         if (i >= 3) letter += '*';
-        html += "<button class='btn disabled" + color + "' style='width:40px'>" + letter + "</button>"
+        html += "<button class='btn disabled" + color + "' style='width:40px'>" + letter + "</button>\n"
     }
     html += "<p></p>"
     for (var i = 0; i < 5; i++) {
         var color = data.liberalPolicies > i ? " btn-primary" : "";
         if (i >= 3) letter += '*';
-        html += "<button class='btn disabled" + color + "' style='width:40px'>&nbsp;</button>"
+        html += "<button class='btn disabled" + color + "' style='width:40px'>&nbsp;</button>\n"
     }
     html += "<p></p>Failed votes:" + (data.round - 1);
     html += "</div>"
