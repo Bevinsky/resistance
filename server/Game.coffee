@@ -905,7 +905,7 @@ class Game extends Room
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard()
         @sendAll 'leader', { player: @activePlayers[@leader].id }
         @sendAll 'chancellor', { player: -1 }
-        @sendAll '-vote'
+        # @sendAll '-vote'
         @nominatePhase()
     
     nominatePhase: ->
@@ -1255,7 +1255,7 @@ class Game extends Room
                   iKnowTheyAreASpy = 
                     me.id is them.id or
                     (@activePlayers.length < 7 and isSpy(me)) or
-                    (me.id is not @hitler and isSpy(me))
+                    (me.id isnt @hitler and isSpy(me))
                 else
                   iKnowTheyAreASpy =
                     me.id is them.id or
