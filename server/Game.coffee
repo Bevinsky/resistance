@@ -893,9 +893,6 @@ class Game extends Room
     
     nextElectionRound: ->
         @shufflePolicyDeck()
-        if @fascistPolicies + @liberalPolicies > 0
-          @unelectablePlayers = [@activePlayers[@chancellor]]
-          @unelectablePlayers.push(@activePlayers[@leader]) if @activePlayers.length > 5
         if @previousLeader >= 0
           @leader = @previousLeader
           @previousLeader = -1
@@ -996,7 +993,7 @@ class Game extends Room
           questionMessage = "You draw THREE FASCIST policies. Which do you discard?"
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard
         @ask 'selecting which policy to discard...',
-            @makeQuestions @activePlayers[@leader],
+            @makeQuestions [@activePlayers[@leader]],
                 cmd: 'choose'
                 msg: questionMessage
                 choices: ['Liberal', 'Fascist'],
@@ -1048,6 +1045,9 @@ class Game extends Room
     policyWasEnacted: (context, wasLiberal) ->
         @sendAll 'hitlerScoreboard', @getHitlerScoreboard
         @sendAllMsgAndGameLog "#{activePlayers[@chancellor].name} enacted a #{if wasLiberal then 'LIBERAL' else 'FASCIST'} policy!"
+        if @fascistPolicies + @liberalPolicies > 0
+          @unelectablePlayers = [@activePlayers[@chancellor]]
+          @unelectablePlayers.push(@activePlayers[@leader]) if @activePlayers.length > 5
         if wasLiberal
           return @resistanceWins() if @liberalPolicies == 5
           @nextElectionRound()
